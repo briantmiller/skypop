@@ -99,8 +99,10 @@ h1 span { color: var(--pop); }
 }
 .chip svg { width: 30px; height: 30px; }
 .tools { display: flex; gap: 10px; }
-#score { font-variant-numeric: tabular-nums; padding: 0 20px 0 12px; transition: transform .15s; }
-#score.bump { transform: scale(1.25); }
+.center { display: flex; gap: 10px; }
+#score, #hits { font-variant-numeric: tabular-nums; padding: 0 20px 0 12px; transition: transform .15s, background .15s; }
+#score.bump, #hits.bump { transform: scale(1.25); }
+#hits.bump { background: #ffd9d9; }
 #map { width: 128px; height: 128px; border-radius: 50%; border: 4px solid var(--ink); background: rgba(255,255,255,.55); box-shadow: 0 4px 0 var(--ink); }
 .right-top { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
 
@@ -185,7 +187,10 @@ h1 span { color: var(--pop); }
       <button class="chip" id="home" aria-label="Back to hangar"><svg viewBox="0 0 24 24"><path d="M3 11 L12 3 L21 11 L19 11 L19 21 L14 21 L14 15 L10 15 L10 21 L5 21 L5 11Z" fill="#1d2b53"/></svg></button>
       <button class="chip" id="mute" aria-label="Sound on or off"><svg viewBox="0 0 24 24"><path id="mute-ico" d="M3 9 L7 9 L12 4 L12 20 L7 15 L3 15Z M15 8 Q19 12 15 16 M17 5 Q23 12 17 19" fill="none" stroke="#1d2b53" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/></svg></button>
     </div>
-    <div class="chip" id="score"><svg viewBox="0 0 24 24"><path d="M12 2 L15 9 L22 9.5 L16.5 14 L18.5 21.5 L12 17.3 L5.5 21.5 L7.5 14 L2 9.5 L9 9Z" fill="#ffd23f" stroke="#1d2b53" stroke-width="2" stroke-linejoin="round"/></svg><b id="scoreN">0</b></div>
+    <div class="center">
+    <div class="chip" id="score" aria-label="Stars"><svg viewBox="0 0 24 24"><path d="M12 2 L15 9 L22 9.5 L16.5 14 L18.5 21.5 L12 17.3 L5.5 21.5 L7.5 14 L2 9.5 L9 9Z" fill="#ffd23f" stroke="#1d2b53" stroke-width="2" stroke-linejoin="round"/></svg><b id="scoreN">0</b></div>
+    <div class="chip" id="hits" aria-label="Times hit"><svg viewBox="0 0 24 24"><g transform="rotate(-45 12 12)"><rect x="1.5" y="7.5" width="21" height="9" rx="4.5" fill="#ffc7a1" stroke="#1d2b53" stroke-width="2"/><rect x="8.5" y="8.5" width="7" height="7" fill="#f2a27a"/><circle cx="5" cy="12" r=".8" fill="#1d2b53"/><circle cx="19" cy="12" r=".8" fill="#1d2b53"/></g></svg><b id="hitsN">0</b></div>
+    </div>
     <div class="right-top"><canvas id="map" width="256" height="256"></canvas></div>
   </div>
   <div id="lock" hidden></div>
@@ -231,7 +236,7 @@ const CFG = {
 const S = {
   craft: CFG[store.get('craft', 'prop')] ? store.get('craft', 'prop') : 'prop',
   color: COLORS.includes(store.get('color', '')) ? store.get('color', '') : COLORS[4],
-  playing: false, score: 0, muted: store.get('muted', '0') === '1'
+  playing: false, score: 0, hits: 0, muted: store.get('muted', '0') === '1'
 };
 const input = { up: false, down: false, left: false, right: false, faster: false, slower: false, fire: false };
 
@@ -412,7 +417,7 @@ const scenery = [];
 }
 
 /* ---------------- player ---------------- */
-const P = { pos: new THREE.Vector3(0, 30, 0), yaw: 0, pitch: 0, roll: 0, yawRate: 0, speed: 30, model: null, fireT: 0 };
+const P = { pos: new THREE.Vector3(0, 30, 0), yaw: 0, pitch: 0, roll: 0, yawRate: 0, speed: 30, model: null, fireT: 0, inv: 0, wobble: 0 };
 const shadow = new THREE.Mesh(new THREE.CircleGeometry(4, 20), new THREE.MeshBasicMaterial({ color: 0x1d2b53, transparent: true, opacity: 0.25, depthWrite: false }));
 shadow.rotation.x = -P2; scene.add(shadow);
 function setCraft() {
@@ -435,17 +440,32 @@ function bullseye() {
   g.add(part(new THREE.BoxGeometry(0.15, 2.4, 3.6), mat('#ffd23f'), 10.5, 7.8, 1.8));
   return g;
 }
+function cannon() {
+  const g = new THREE.Group(), dark = mat('#2b2f3a');
+  g.add(part(new THREE.CylinderGeometry(3.4, 3.8, 1.6, 12), mat('#ff9a1f'), 0, 0.8, 0));
+  g.add(part(new THREE.CylinderGeometry(3.45, 3.45, 0.5, 12), mat('#ff4b4b'), 0, 1.4, 0));
+  const turret = new THREE.Group(); turret.position.y = 2.2; g.add(turret);
+  turret.add(part(new THREE.SphereGeometry(2, 12, 8), dark));
+  [-2.1, 2.1].forEach((x) => turret.add(part(new THREE.CylinderGeometry(1.5, 1.5, 0.5, 12), mat('#8a5a35'), x, -0.2, 0, 0, 0, P2)));
+  const pivot = new THREE.Group(); turret.add(pivot);
+  pivot.add(part(new THREE.CylinderGeometry(0.75, 1.0, 6, 10), dark, 0, 0, 3, P2));
+  const muzzle = part(new THREE.TorusGeometry(0.85, 0.3, 6, 12), new THREE.MeshBasicMaterial({ color: 0xffd23f }), 0, 0, 6);
+  pivot.add(muzzle);
+  g.userData = { turret, pivot, muzzle };
+  return g;
+}
 function aheadSpot(min, max, spread) {
   const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw), d = rand(min, max), s = rand(-spread, spread);
   return [P.pos.x + fx * d - fz * s, P.pos.z + fz * d + fx * s];
 }
 function placeThing(t, near) {
   const [x, z] = near ? aheadSpot(120, 420, 260) : aheadSpot(-500, 500, 500);
-  if (t.kind === 'ground') { t.obj.position.set(x, 0, z); t.obj.rotation.y = rand(0, 6); }
+  if (t.kind !== 'air') { t.obj.position.set(x, 0, z); t.obj.rotation.y = t.kind === 'cannon' ? 0 : rand(0, 6); t.cool = rand(1.5, 3); }
   else { t.cx = x; t.cz = z; t.alt = rand(22, 65); t.r = rand(45, 95); t.a = rand(0, 6.28); t.w = (Math.random() < 0.5 ? -1 : 1) * rand(0.25, 0.4); }
   t.alive = true; t.obj.visible = true;
 }
 for (let i = 0; i < 9; i++) { const o = bullseye(); scene.add(o); things.push({ kind: 'ground', obj: o, alive: true, respawn: 0 }); }
+for (let i = 0; i < 4; i++) { const o = cannon(); o.scale.setScalar(1.4); scene.add(o); things.push({ kind: 'cannon', obj: o, alive: true, respawn: 0, cool: 2 }); }
 const AIR = ['#7a5cff', '#5c6b80', '#26a69a', '#ff7a45', '#c04fd0'];
 for (let i = 0; i < 5; i++) {
   const o = buildCraft(i % 3 === 2 ? 'bi' : 'prop', AIR[i]); o.scale.setScalar(0.9);
@@ -453,7 +473,10 @@ for (let i = 0; i < 5; i++) {
 }
 function resetThings() { things.forEach((t, i) => placeThing(t, i % 2 === 0 || t.kind === 'air')); }
 const tpos = new THREE.Vector3();
-function thingPos(t, out) { return t.kind === 'ground' ? out.set(t.obj.position.x, 1.5, t.obj.position.z) : out.copy(t.obj.position); }
+function thingPos(t, out) {
+  if (t.kind === 'air') return out.copy(t.obj.position);
+  return out.set(t.obj.position.x, t.kind === 'cannon' ? 4 : 1.5, t.obj.position.z);
+}
 
 function updateThings(dt, time) {
   for (const t of things) {
@@ -462,8 +485,9 @@ function updateThings(dt, time) {
       if (t.respawn <= 0) placeThing(t, true);
       continue;
     }
-    if (t.kind === 'ground') {
+    if (t.kind !== 'air') {
       if (Math.hypot(t.obj.position.x - P.pos.x, t.obj.position.z - P.pos.z) > 850) placeThing(t, true);
+      if (t.kind === 'cannon') aimCannon(t, dt);
     } else {
       if (Math.hypot(t.cx - P.pos.x, t.cz - P.pos.z) > 750) placeThing(t, true);
       t.a += t.w * dt;
@@ -496,8 +520,65 @@ function burst(pos, n, power) {
     b.vel.set(rand(-1, 1), rand(-0.2, 1.2), rand(-1, 1)).normalize().multiplyScalar(rand(0.4, 1) * power);
     b.vel.y += power * 0.4; b.spin.set(rand(-9, 9), rand(-9, 9), rand(-9, 9));
   }
+  flash(pos, 0xfff27a, 14);
+}
+const balls = [];
+const ballGeo = new THREE.SphereGeometry(1.4, 12, 8), ballMat = new THREE.MeshBasicMaterial({ color: 0xff6a1a });
+const ballGlow = new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.45, depthWrite: false });
+for (let i = 0; i < 16; i++) {
+  const m = new THREE.Mesh(ballGeo, ballMat); m.add(new THREE.Mesh(new THREE.SphereGeometry(2.3, 10, 8), ballGlow));
+  m.visible = false; scene.add(m); balls.push({ m, vel: new THREE.Vector3(), life: 0 });
+}
+const BALL_SPEED = 75, RANGE = 320;
+const cv = new THREE.Vector3(), mz = new THREE.Vector3();
+function aimCannon(t, dt) {
+  const { turret, pivot, muzzle } = t.obj.userData;
+  const dx = P.pos.x - t.obj.position.x, dz = P.pos.z - t.obj.position.z, dy = P.pos.y - 3.1;
+  const flat = Math.hypot(dx, dz), dist = Math.hypot(flat, dy);
+  turret.rotation.y = damp(turret.rotation.y, Math.atan2(dx, dz), 3, dt);
+  pivot.rotation.x = damp(pivot.rotation.x, -Math.atan2(dy, flat), 3, dt);
+  if (!S.playing || dist > RANGE) { muzzle.scale.setScalar(1); return; }
+  t.cool -= dt;
+  muzzle.scale.setScalar(t.cool < 0.7 ? 1 + 0.5 * Math.abs(Math.sin(t.cool * 18)) : 1); // wind-up wiggle
+  if (t.cool > 0) return;
+  t.cool = rand(2.8, 4.5);
+  const b = balls.find((b) => b.life <= 0); if (!b) return;
+  muzzle.getWorldPosition(mz);
+  // aim a little ahead of the plane so it's a fair but real challenge
+  forward(fwd);
+  const lead = (dist / BALL_SPEED) * 0.5;
+  cv.copy(P.pos).addScaledVector(fwd, P.speed * lead).sub(mz).normalize();
+  b.m.position.copy(mz); b.m.visible = true; b.vel.copy(cv).multiplyScalar(BALL_SPEED); b.life = 6;
+  flash(mz, 0xffd23f, 6);
+  sfx.boom(dist);
+}
+function playerHit(pos) {
+  S.hits++; $('hitsN').textContent = S.hits;
+  const el = $('hits'); el.classList.add('bump'); setTimeout(() => el.classList.remove('bump'), 220);
+  P.inv = 1.6; P.wobble = 1;
+  burst(pos, 8, 12); flash(pos, 0xff6a1a, 9);
+  sfx.bonk(); toast(['Bonk!', 'Oops!', 'Boing!', 'Ouch!'][S.hits % 4]);
+}
+function updateBalls(dt) {
+  for (const b of balls) {
+    if (b.life <= 0) continue;
+    b.life -= dt;
+    b.m.position.addScaledVector(b.vel, dt);
+    let done = b.life <= 0 || b.m.position.y < 0.5;
+    if (!done && S.playing && P.inv <= 0 && b.m.position.distanceToSquared(P.pos) < 30) { playerHit(b.m.position.clone()); done = true; }
+    if (done) { b.life = 0; b.m.visible = false; }
+  }
+  // shooting a cannonball out of the air pops it
+  for (const s of bullets) {
+    if (s.life <= 0) continue;
+    for (const b of balls) if (b.life > 0 && s.m.position.distanceToSquared(b.m.position) < 16) {
+      b.life = 0; b.m.visible = false; s.life = 0; s.m.visible = false; burst(b.m.position, 12, 15); sfx.pop(); break;
+    }
+  }
+}
+function flash(pos, color, size) {
   const r = rings.find((r) => r.life <= 0) || rings[0];
-  r.m.position.copy(pos); r.m.visible = true; r.life = 0.4;
+  r.m.position.copy(pos); r.m.visible = true; r.life = 0.4; r.size = size; r.m.material.color.setHex(color);
 }
 function findLock() {
   const aim = forward(new THREE.Vector3());
@@ -548,8 +629,8 @@ function updateShots(dt) {
     if (p.y < 0.4) { done = true; burst(p, 6, 10); }
     for (const t of things) {
       if (done || !t.alive) continue;
-      if (t.kind === 'ground') {
-        if (p.y < 9 && Math.hypot(p.x - t.obj.position.x, p.z - t.obj.position.z) < 11) { hit(t); done = true; }
+      if (t.kind !== 'air') {
+        if (p.y < 9 && Math.hypot(p.x - t.obj.position.x, p.z - t.obj.position.z) < (t.kind === 'cannon' ? 9 : 11)) { hit(t); done = true; }
       } else if (dv.copy(p).sub(t.obj.position).lengthSq() < 81) { hit(t); done = true; }
     }
     if (done) { b.life = 0; b.m.visible = false; }
@@ -565,7 +646,7 @@ function updateShots(dt) {
   for (const r of rings) {
     if (r.life <= 0) continue;
     r.life -= dt; const k = 1 - r.life / 0.4;
-    r.m.scale.setScalar(2 + k * 14); r.m.material.opacity = 0.7 * (1 - k);
+    r.m.scale.setScalar(2 + k * (r.size || 14)); r.m.material.opacity = 0.7 * (1 - k);
     if (r.life <= 0) r.m.visible = false;
   }
 }
@@ -601,6 +682,8 @@ const sfx = {
     s.buffer = buf; f.type = 'bandpass'; f.frequency.value = 1400; g.gain.value = 0.35;
     s.connect(f); f.connect(g); g.connect(master); s.start();
   },
+  boom(dist) { const v = 0.35 * Math.max(0.15, 1 - dist / RANGE); this.tone('sine', 150, 45, 0.35, v); this.tone('square', 90, 40, 0.12, v * 0.3); },
+  bonk() { this.tone('sine', 520, 140, 0.3, 0.3); this.tone('triangle', 260, 90, 0.35, 0.15, 0.05); },
   cheer() { [523, 659, 784, 1047].forEach((f, i) => this.tone('triangle', f, f * 1.01, 0.22, 0.18, i * 0.11)); },
   engine(on) {
     if (!ac) return;
@@ -641,7 +724,8 @@ function flyPlayer(dt) {
 function poseModel(dt) {
   const m = P.model;
   m.position.copy(P.pos);
-  m.rotation.set(P.tilt || 0, P.yaw, P.roll);
+  m.rotation.set(P.tilt || 0, P.yaw, P.roll + Math.sin(performance.now() / 40) * 0.45 * P.wobble);
+  m.visible = P.inv <= 0 || Math.floor(P.inv * 10) % 2 === 0;
   const c = CFG[S.craft];
   spin(m, dt, S.craft === 'heli' ? 1 : 0.4 + P.speed / c.max);
   if (m.userData.flame) m.userData.flame.scale.set(1, 0.4 + 1.2 * (P.speed - c.min) / (c.max - c.min), 1);
@@ -685,8 +769,9 @@ function drawMap() {
     let f = dx * s + dz * co, r = -dx * co + dz * s;
     let x = r * k, y = -f * k; const L = Math.hypot(x, y), lim = c - 16;
     if (L > lim) { x *= lim / L; y *= lim / L; }
-    mapX.fillStyle = t.kind === 'air' ? '#7a5cff' : '#ff4b4b';
     mapX.strokeStyle = '#1d2b53'; mapX.lineWidth = 4;
+    if (t.kind === 'cannon') { mapX.fillStyle = '#ff9a1f'; mapX.fillRect(c + x - 11, c + y - 11, 22, 22); mapX.strokeRect(c + x - 11, c + y - 11, 22, 22); continue; }
+    mapX.fillStyle = t.kind === 'air' ? '#7a5cff' : '#ff4b4b';
     mapX.beginPath(); mapX.arc(c + x, c + y, 12, 0, 6.3); mapX.fill(); mapX.stroke();
   }
   mapX.fillStyle = S.color; mapX.strokeStyle = '#1d2b53'; mapX.lineWidth = 5;
@@ -734,6 +819,8 @@ function startFlight() {
   const c = CFG[S.craft];
   P.pos.set(P.pos.x, 35, P.pos.z); P.pitch = 0; P.roll = 0; P.yawRate = 0; P.speed = c.start;
   S.score = 0; $('scoreN').textContent = '0';
+  S.hits = 0; $('hitsN').textContent = '0'; P.inv = 0; P.wobble = 0;
+  balls.forEach((b) => { b.life = 0; b.m.visible = false; });
   resetThings();
   S.playing = true; $('menu').hidden = true; $('hud').hidden = false;
   chaseCam(0, true);
@@ -744,6 +831,8 @@ function toMenu() {
   S.playing = false; Object.keys(input).forEach((k) => (input[k] = false));
   document.querySelectorAll('.on').forEach((e) => e.classList.remove('on'));
   $('hud').hidden = true; $('menu').hidden = false; sfx.engine(false);
+  P.inv = 0; P.wobble = 0; P.model.visible = true;
+  balls.forEach((b) => { b.life = 0; b.m.visible = false; });
 }
 $('go').addEventListener('click', startFlight);
 $('home').addEventListener('click', toMenu);
@@ -797,6 +886,7 @@ function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now; time += dt;
   if (S.playing) {
     flyPlayer(dt);
+    P.inv = Math.max(0, P.inv - dt); P.wobble = damp(P.wobble, 0, 3, dt);
     if (input.fire) { P.fireT -= dt; if (P.fireT <= 0) { shoot(); P.fireT = 0.18; } }
     poseModel(dt); chaseCam(dt);
     sfx.engine(true);
@@ -811,6 +901,7 @@ function frame(now) {
   }
   updateThings(dt, time);
   updateShots(dt);
+  updateBalls(dt);
   for (const s of scenery) placeAll(s, P.pos.x, P.pos.z);
   ground.position.set(P.pos.x, 0, P.pos.z);
   gtex.offset.set(P.pos.x / TILE, -P.pos.z / TILE);
